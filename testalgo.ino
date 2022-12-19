@@ -19,7 +19,6 @@ FirebaseJson json;
 #define PIR1 5
 #define PIR2 18
 #define PIR3 19
-//#define PIR4 21
 #define buzzerPin 22
 // Analog
 //#define hallSensor 33
@@ -32,9 +31,11 @@ FirebaseJson json;
 /* GLOBAL VAR */
 float prevhum = 0;
 float prevtemp = 0;
+int prevwater = 0;
 int prevhall = 0;
-int prevpir = 0;
+int pirsum = 0;
 int occupied = 0;
+
 unsigned long pirtimestart;
 int waterlevel = 0;
 
@@ -144,24 +145,24 @@ void loop() {
   float t = newValues.temperature;
   float h = newValues.humidity;
   
-  // irdaikin.sendCommand();
 
-  if (PIR1val || PIR2val || PIR3val){
-    Serial.println("There are people in the room.");
-    occupied = 1;
-    irsend.sendDaikin64(accode[1], 64, 0); // turn on
-  }
-  else{
-    Serial.println("There is no one in the room.");
-    occupied = 0;
-    irsend.sendDaikin64(accode[0], 64, 0); // turn off
-  }
-
-  if (millis() - pirtimestart >= 120000){
-    pirtimestart = millis(); // set start time to current time
-    if (1){
-      //irsend.sendDaikin64(accode[0], 64, 0); // turn off
+  if (millis() - pirtimestart >= 180000){ // after 3 minutes
+    if (pirsum >= 10 && occupied == 0){
+      Serial.println("There are people in the room.");
+      occupied = 1;
+      irsend.sendDaikin64(accode[1], 64, 0); // turn on
+      json.set("/occu", occupied);
+      Firebase.updateNode(firebaseData, "/sensor", json);
     }
+    else if (pirsum < 10 && occupied == 1){
+      Serial.println("There is no one in the room.");
+      occupied = 0;
+      irsend.sendDaikin64(accode[0], 64, 0); // turn off
+      json.set("/occu", occupied);
+      Firebase.updateNode(firebaseData, "/sensor", json);
+    }
+    pirsum = 0;
+    pirtimestart = millis(); // set start time to current time
   }
 
   if (t != prevtemp){
@@ -172,17 +173,22 @@ void loop() {
     json.set("/hum", h);
     Firebase.updateNode(firebaseData, "/sensor", json);
   }
+  if (waterlevel != prevwater){
+    json.set("/water", waterlevel);
+    Firebase.updateNode(firebaseData, "/sensor", json);
+  }
 
   // AC Control Algorithm
-  if (t > 30){
-    //irsend.sendDaikin64(accode[t - 5], 64, 0); // problem: t is float. change to int
-  }
-  else if (t > 25){
-    //irsend.sendDaikin64(accode[t-3], 64, 0);
+  if (t > 25){
+    int tref = int(round(t))
+    irsend.sendDaikin64(accode[tref - 3], 64, 0);
   }
 
   prevtemp = t;
   prevhum = h;
+  prevwater = waterlevel;
+
+  pirsum += PIR1val + PIR2val + PIR3val;
 
   Serial.print("PIR Sensor Values: ");
   Serial.print(PIR1val);
@@ -200,5 +206,5 @@ void loop() {
   Serial.print(h);
   Serial.println("%");
   
-  delay(5000);
+  delay(2000);
 }
